@@ -28,16 +28,63 @@ public class NetMqListener
     private readonly ConcurrentQueue<List<string>> _messageQueue = new ConcurrentQueue<List<string>>();
     //private string csv_folder = "Assets/Logging/";
 	  private string csv_path = "Assets/Logging/unity_timestamps_sub.csv";
-	  private StreamWriter csv_writer;
+    private string save_text_path = "Assets/Resources/webcam.txt";
+	  private StreamWriter csv_writer, csv_writer2, file_writer;
 	  private long msg_count;
     public NetMqListener(string sub_to_ip, string sub_to_port) {
         this.sub_to_ip = sub_to_ip;
         this.sub_to_port = sub_to_port;
     }
+    private void ReadingFromFile()
+    {
+        
+        string line;
+        Debug.Log("Read from file active");
+        using(var reader = new StreamReader(save_text_path))
+        {
+            long time = 15919501290475200;
+            while ((line = reader.ReadLine()) != null)
+            {
+                List<string> msg_list = new List<string>();
+                string topic = "openface.p0.demo";
+                string timestamp = time.ToString();
+                string facsvatar_json = line;
+                time = time + 300000;
+                if (timestamp != "")
+                {
+                    msg_list.Add(topic);
+                    msg_list.Add(timestamp);
+                    msg_list.Add(facsvatar_json);
+                    long timeNowMs = UnixTimeNowMillisec();
+                    msg_list.Add(timeNowMs.ToString());  // time msg received; for unity performance
+
+                    if (facsvatar_logging == true)
+                    {
+                        //Debug.Log("NetMqListener log");
+
+                        //Debug.Log(timeNowMs);
+                        //Debug.Log(timestamp2);
+                        //Debug.Log(timeNowMs - timestamp2);
+
+                        // write to csv
+                        // string csvLine = string.Format("{0},{1},{2}", msg_count, timestamp2, timeNowMs);
+                        string csvLine = string.Format("{0},{1}", msg_count, timeNowMs);
+                        csv_writer.WriteLine(csvLine);
+                    }
+                    msg_count++;
+
+                    _messageQueue.Enqueue(msg_list);
+                    System.Threading.Thread.Sleep(35);
+                }
+  
+            }
+        }
+        Debug.Log("Read from file done");
+    }
 
     private void ListenerWork()
     {
-		    Debug.Log("Setting up subscriber sock");
+		Debug.Log("Setting up subscriber sock");
         AsyncIO.ForceDotNet.Force();
         using (var subSocket = new SubscriberSocket())
         {
@@ -56,6 +103,15 @@ public class NetMqListener
             //string blend_shapes;
             //string head_pose;
             string facsvatar_json;
+
+            //Open Webcam csv and write line to it
+            //Debug.Log("Setting external csv");
+            //File.Delete(save_csv_path);
+            //csv_writer2 = new StreamWriter(save_csv_path, true);
+            //csv_writer2.WriteLine("topic,timestamp,facsvatar_json");
+            File.Delete(save_text_path);
+            file_writer = new StreamWriter(save_text_path, true);
+
             while (!_listenerCancelled)
             {
                 //string frameString;
@@ -73,15 +129,21 @@ public class NetMqListener
                 if (!subSocket.TryReceiveFrameString(out facsvatar_json)) continue;
 
                 //Debug.Log("Received messages:");
-                //Debug.Log(frame);
+                //Debug.Log(topic);
                 //Debug.Log(timestamp);
-				        //Debug.Log(facsvatar_json);
+                //Debug.Log(facsvatar_json);
+
+                //string csv_store_line = string.Format("{0},{1},{2}", topic, timestamp, facsvatar_json);
+                //Debug.Log(csv_store_line);
+                //csv_writer2.WriteLine(csv_store_line);
+
+                file_writer.WriteLine(facsvatar_json);
 
                 // check if we're not done; timestamp is empty
                 if (timestamp != "")
                 {
                     msg_list.Add(topic);
-					          msg_list.Add(timestamp);
+					msg_list.Add(timestamp);
                     msg_list.Add(facsvatar_json);
                     long timeNowMs = UnixTimeNowMillisec();
                     msg_list.Add(timeNowMs.ToString());  // time msg received; for unity performance
@@ -98,8 +160,8 @@ public class NetMqListener
 					              // string csvLine = string.Format("{0},{1},{2}", msg_count, timestamp2, timeNowMs);
 					              string csvLine = string.Format("{0},{1}", msg_count, timeNowMs);
 					              csv_writer.WriteLine(csvLine);
-					          }
-					          msg_count++;
+					}
+					msg_count++;
 					          
                     _messageQueue.Enqueue(msg_list);
                 }
@@ -144,7 +206,8 @@ public class NetMqListener
     public NetMqListener(MessageDelegate messageDelegate)
     {
         _messageDelegate = messageDelegate;
-        _listenerWorker = new Thread(ListenerWork);
+        _listenerWorker = new Thread(ReadingFromFile);
+        //_listenerWorker = new Thread(ListenerWork);
     }
 
     public void Start()
@@ -156,7 +219,7 @@ public class NetMqListener
 		        msg_count = -1;
 		        File.Delete(csv_path);  // delete previous csv if exist
 		        csv_writer = new StreamWriter(csv_path, true);  // , true
-            csv_writer.WriteLine("msg,time_prev,time_now");
+                csv_writer.WriteLine("msg,time_prev,time_now");
 		        csv_writer.Flush();
             //csv_writer.Close();
 		        //csv_writer.Open();
@@ -195,7 +258,7 @@ public class ZeroMQFACSvatar : MonoBehaviour
 	  private string csv_path = "Assets/Logging/unity_timestamps_sub.csv";
 	  private StreamWriter csv_writer;   
 	  private string csv_path_total = "Assets/Logging/unity_timestamps_total.csv";
-    private StreamWriter csv_writer_total;
+      private StreamWriter csv_writer_total;
 
 
     // Facial expressions: Assign by dragging the GameObject with FACSnimator into the inspector before running the game.
@@ -213,6 +276,8 @@ public class ZeroMQFACSvatar : MonoBehaviour
     // receive data in JSON format
     private void HandleMessage(List<string> msg_list)
     {
+        Debug.Log(msg_list[2]);
+        Debug.Log(msg_list[3]);
         JObject facsvatar = JObject.Parse(msg_list[2]);
         // get Blend Shape dict
         JObject blend_shapes = facsvatar["blendshapes"].ToObject<JObject>();
